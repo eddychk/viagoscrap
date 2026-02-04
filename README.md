@@ -8,7 +8,7 @@ Application de suivi Viagogo:
 
 ## 1) Prerequis
 
-- Python 3.11+
+- Python 3.10+
 - Playwright Chromium
 - (Optionnel) compte Resend pour les emails
 
