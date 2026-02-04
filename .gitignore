@@ -3,3 +3,5 @@ __pycache__/
 .venv/
 .env
 playwright-report/
+*.egg-info/
+data/*.db
