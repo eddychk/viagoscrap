@@ -32,6 +32,7 @@ HEADLESS=false
 TIMEOUT_MS=30000
 DB_PATH=data/viagoscrap.db
 SCRAPE_INTERVAL_MIN=15
+SCRAPER_DEBUG=false
 DASHBOARD_URL=http://127.0.0.1:8000
 
 EMAIL_PROVIDER=resend
@@ -118,3 +119,4 @@ python -m pytest -q
 
 - Les selecteurs Viagogo peuvent changer avec le temps.
 - Respecte les CGU de la plateforme et la legislation locale.
+- Pour debug scraping sur Railway, mets `SCRAPER_DEBUG=true` et regarde les logs du service.

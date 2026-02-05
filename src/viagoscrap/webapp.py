@@ -46,6 +46,13 @@ class SubscriberCreate(BaseModel):
     event_id: int | None = None
 
 
+def _env_bool(name: str, default: bool = False) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().strip('"').strip("'").lower() in {"1", "true", "yes", "y", "on"}
+
+
 def _build_dashboard_html() -> str:
     return """<!doctype html>
 <html lang="fr">
@@ -327,6 +334,7 @@ def create_app() -> FastAPI:
     interval_min = int(os.getenv("SCRAPE_INTERVAL_MIN", "15"))
     runtime = {"interval_min": max(1, interval_min)}
     settings = Settings.from_env()
+    scraper_debug = _env_bool("SCRAPER_DEBUG", default=False)
     scheduler = BackgroundScheduler()
 
     def schedule_scrape_job() -> None:
@@ -343,7 +351,7 @@ def create_app() -> FastAPI:
     def run_all_active() -> list[dict[str, Any]]:
         results = []
         for event in active_events(db_path):
-            results.append(scrape_event_once(db_path, event, settings, debug=False))
+            results.append(scrape_event_once(db_path, event, settings, debug=scraper_debug))
         return results
 
     @app.on_event("startup")
@@ -370,6 +378,7 @@ def create_app() -> FastAPI:
             "db_path": db_path,
             "scrape_interval_min": runtime["interval_min"],
             "headless": settings.headless,
+            "scraper_debug": scraper_debug,
             "notifications_enabled": notifications_enabled,
         }
 
@@ -418,7 +427,7 @@ def create_app() -> FastAPI:
         event = get_event(db_path, event_id)
         if not event:
             raise HTTPException(status_code=404, detail="Event not found")
-        return scrape_event_once(db_path, event, settings, debug=False)
+        return scrape_event_once(db_path, event, settings, debug=scraper_debug)
 
     @app.post("/api/scrape-all")
     def scrape_all() -> list[dict[str, Any]]:
