@@ -9,8 +9,8 @@ def test_parse_price_eur_symbol():
 
 def test_parse_price_usd_symbol():
     value, currency = parse_price("From $199.50")
-    assert value == 199.50
-    assert currency == "USD"
+    assert value is None
+    assert currency is None
 
 
 def test_parse_price_without_numeric():

@@ -22,6 +22,10 @@ class _LocatorContext(Protocol):
 
 
 EURO = "\u20ac"
+DEFAULT_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+)
 COOKIE_ACCEPT_SELECTORS = (
     "[data-testid='cookie-compliance-allow-all-button']",
     "button#onetrust-accept-btn-handler",
@@ -41,10 +45,10 @@ def _debug(enabled: bool, message: str) -> None:
 
 def _extract_price(text: str) -> str:
     lines = [line.strip() for line in text.splitlines() if line.strip()]
-    amount_pattern = re.compile(r"(\d[\d\s,.]*\s?(?:\u20ac|\$|EUR|USD))", flags=re.IGNORECASE)
+    amount_pattern = re.compile(r"(\d[\d\s,.]*\s?(?:\u20ac|EUR))", flags=re.IGNORECASE)
     for line in lines:
         lowered = line.lower()
-        if EURO in line or "$" in line or "eur" in lowered or "usd" in lowered:
+        if EURO in line or "eur" in lowered:
             amount_match = amount_pattern.search(line)
             return amount_match.group(1).strip() if amount_match else line
 
@@ -54,7 +58,7 @@ def _extract_price(text: str) -> str:
 
 
 def _extract_all_prices(text: str) -> list[str]:
-    pattern = re.compile(r"\d[\d\s,.]*\s?(?:\u20ac|\$|EUR|USD)", flags=re.IGNORECASE)
+    pattern = re.compile(r"\d[\d\s,.]*\s?(?:\u20ac|EUR)", flags=re.IGNORECASE)
     seen: set[str] = set()
     out: list[str] = []
     for match in pattern.findall(text):
@@ -63,6 +67,17 @@ def _extract_all_prices(text: str) -> list[str]:
             seen.add(price)
             out.append(price)
     return out
+
+
+def _is_reasonable_ticket_price(price: str) -> bool:
+    match = re.search(r"\d[\d\s,.]*", price)
+    if not match:
+        return False
+    try:
+        value = float(match.group(0).replace(" ", "").replace("\u00a0", "").replace(",", "."))
+    except ValueError:
+        return False
+    return value >= 20.0
 
 
 async def _try_click_cookie_button(context: _LocatorContext, selector: str) -> bool:
@@ -94,8 +109,18 @@ async def scrape_listings(url: str, settings: Settings, debug: bool = False) -> 
 
     async with async_playwright() as p:
         _debug(debug, "Launching Chromium")
-        browser = await p.chromium.launch(headless=settings.headless)
-        page = await browser.new_page()
+        browser = await p.chromium.launch(
+            headless=settings.headless,
+            args=["--disable-blink-features=AutomationControlled"],
+        )
+        context = await browser.new_context(
+            user_agent=DEFAULT_USER_AGENT,
+            locale="fr-FR",
+            timezone_id="Europe/Paris",
+            viewport={"width": 1366, "height": 2000},
+            extra_http_headers={"Accept-Language": "fr-FR,fr;q=0.9,en;q=0.8"},
+        )
+        page = await context.new_page()
         _debug(debug, f"Opening page: {url}")
         await page.goto(url, timeout=settings.timeout_ms, wait_until="domcontentloaded")
         try:
@@ -209,12 +234,15 @@ async def scrape_listings(url: str, settings: Settings, debug: bool = False) -> 
             try:
                 html = await page.content()
                 candidates = _extract_all_prices(html)
-                for price in candidates[:10]:
+                for price in candidates[:20]:
+                    if not _is_reasonable_ticket_price(price):
+                        continue
                     items.append(Ticket(title="Listing", date="", price=price, url=page.url))
             except Exception:
                 pass
 
         _debug(debug, f"Parsed tickets: {len(items)}")
+        await context.close()
         await browser.close()
         return items
 

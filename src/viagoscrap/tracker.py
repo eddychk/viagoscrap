@@ -14,17 +14,22 @@ def parse_price(raw: str) -> tuple[float | None, str | None]:
     if not raw:
         return None, None
 
-    currency = None
-    if "\u20ac" in raw or "eur" in raw.lower():
-        currency = "EUR"
-    elif "$" in raw or "usd" in raw.lower():
-        currency = "USD"
+    # This project tracks Viagogo FR prices, so only EUR values are valid.
+    eur_match = re.search(r"(\d[\d\s.,]*)\s*(?:\u20ac|eur)", raw, flags=re.IGNORECASE)
+    currency = "EUR"
+    numeric = None
+    if eur_match:
+        numeric = eur_match.group(1)
 
-    match = re.search(r"(\d[\d\s.,]*)", raw)
+    # Ignore values without an explicit currency marker to avoid false positives like "Afficher 3 de 20".
+    if not numeric:
+        return None, None
+
+    match = re.search(r"\d[\d\s.,]*", numeric)
     if not match:
         return None, currency
 
-    numeric = match.group(1).replace(" ", "").replace("\u00a0", "")
+    numeric = match.group(0).replace(" ", "").replace("\u00a0", "")
     if "," in numeric and "." in numeric:
         numeric = numeric.replace(".", "").replace(",", ".")
     elif "," in numeric and "." not in numeric:
