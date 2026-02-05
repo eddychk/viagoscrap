@@ -53,6 +53,18 @@ def _extract_price(text: str) -> str:
     return match.group(1).strip() if match else ""
 
 
+def _extract_all_prices(text: str) -> list[str]:
+    pattern = re.compile(r"\d[\d\s,.]*\s?(?:\u20ac|\$|EUR|USD)", flags=re.IGNORECASE)
+    seen: set[str] = set()
+    out: list[str] = []
+    for match in pattern.findall(text):
+        price = " ".join(match.split())
+        if price not in seen:
+            seen.add(price)
+            out.append(price)
+    return out
+
+
 async def _try_click_cookie_button(context: _LocatorContext, selector: str) -> bool:
     locator = context.locator(selector).first
     if await locator.count() == 0:
@@ -86,10 +98,31 @@ async def scrape_listings(url: str, settings: Settings, debug: bool = False) -> 
         page = await browser.new_page()
         _debug(debug, f"Opening page: {url}")
         await page.goto(url, timeout=settings.timeout_ms, wait_until="domcontentloaded")
+        try:
+            await page.wait_for_load_state("networkidle", timeout=min(settings.timeout_ms, 20_000))
+        except Exception:
+            pass
         await _accept_cookies(page, debug)
 
         # Let dynamic content render before querying cards
-        await page.wait_for_timeout(2_000)
+        await page.wait_for_timeout(2_500)
+        for _ in range(3):
+            await page.mouse.wheel(0, 2_000)
+            await page.wait_for_timeout(500)
+        for expand_selector in [
+            "button:has-text('Afficher plus')",
+            "button:has-text('Show more')",
+            "[data-testid='listings-container'] button",
+        ]:
+            try:
+                btn = page.locator(expand_selector).first
+                if await btn.count() and await btn.is_visible():
+                    await btn.click(timeout=2_000)
+                    _debug(debug, f"Clicked expand button '{expand_selector}'")
+                    await page.wait_for_timeout(1_500)
+                    break
+            except Exception:
+                continue
 
         selector_candidates = [
             "div[data-testid*='listing']:has-text('\u20ac')",
@@ -155,6 +188,15 @@ async def scrape_listings(url: str, settings: Settings, debug: bool = False) -> 
                 fallback_price = _extract_price(container_text)
                 if fallback_price:
                     items.append(Ticket(title="Listing", date="", price=fallback_price, url=page.url))
+            except Exception:
+                pass
+        if not items:
+            _debug(debug, "No container price, trying page HTML fallback")
+            try:
+                html = await page.content()
+                candidates = _extract_all_prices(html)
+                for price in candidates[:10]:
+                    items.append(Ticket(title="Listing", date="", price=price, url=page.url))
             except Exception:
                 pass
 
