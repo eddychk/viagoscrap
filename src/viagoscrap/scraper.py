@@ -125,6 +125,7 @@ async def scrape_listings(url: str, settings: Settings, debug: bool = False) -> 
                 continue
 
         selector_candidates = [
+            "[data-testid='listings-container']",
             "div[data-testid*='listing']:has-text('\u20ac')",
             "li[data-testid*='listing']:has-text('\u20ac')",
             "tr[data-testid*='listing']:has-text('\u20ac')",
@@ -167,9 +168,22 @@ async def scrape_listings(url: str, settings: Settings, debug: bool = False) -> 
 
             title = lines[0] if lines else ""
             date = lines[1] if len(lines) > 1 else ""
-            price = _extract_price(text)
             full_url = urljoin(page.url, href or "")
 
+            # listings-container often contains all rows in one block; split all prices
+            multi_prices = _extract_all_prices(text) if selected == "[data-testid='listings-container']" else []
+            if multi_prices:
+                for price in multi_prices:
+                    key = (title or "Listing", price, full_url)
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    items.append(Ticket(title=title or "Listing", date=date, price=price, url=full_url))
+                if debug and i < 3:
+                    _debug(debug, f"Container prices extracted: {multi_prices[:8]}")
+                continue
+
+            price = _extract_price(text)
             if not price:
                 continue
 
